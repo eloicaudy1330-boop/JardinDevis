@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1e5631">
+  <title>JardinDevis — Devis professionnels pour jardiniers</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="brand" data-nav="dashboard" role="button" tabindex="0">
+      <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 22c0-7 4-11 10-12-1 7-5 11-10 12zM12 22C6 21 3 17 2 11c6 1 10 4 10 11z" fill="currentColor"/>
+        <path d="M12 22V8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-name">JardinDevis</span>
+    </div>
+    <button type="button" id="btn-back" class="btn btn-ghost" hidden>← Retour</button>
+  </header>
+
+  <main>
+
+    <!-- ============ TABLEAU DE BORD ============ -->
+    <section id="view-dashboard" class="view">
+      <h1>Bonjour 👋<br>Bienvenue sur JardinDevis</h1>
+      <p class="tagline">Créez des devis professionnels en quelques minutes, depuis votre téléphone.</p>
+      <p id="dashboard-stats" class="stats"></p>
+
+      <button type="button" class="big-btn big-green" data-nav="new-devis">
+        <span class="big-icon">＋</span>
+        <span class="big-label">Nouveau devis</span>
+        <span class="big-sub">Créer un devis pour un client</span>
+      </button>
+      <button type="button" class="big-btn big-light" data-nav="history">
+        <span class="big-icon">📋</span>
+        <span class="big-label">Mes devis</span>
+        <span class="big-sub">Historique et statuts</span>
+      </button>
+      <button type="button" class="big-btn big-light" data-nav="profile">
+        <span class="big-icon">🏢</span>
+        <span class="big-label">Mon entreprise</span>
+        <span class="big-sub">Coordonnées, SIRET, TVA</span>
+      </button>
+    </section>
+
+    <!-- ============ FORMULAIRE DEVIS ============ -->
+    <section id="view-devis-form" class="view" hidden>
+      <h2 id="form-title">Nouveau devis</h2>
+
+      <form id="devis-form" novalidate>
+        <fieldset>
+          <legend>1. Informations du client</legend>
+          <label>Nom ou entreprise du client *
+            <input type="text" id="cli-nom" placeholder="Ex. Mme Dupont ou SARL Les Roses">
+          </label>
+          <label>Adresse
+            <input type="text" id="cli-adresse" placeholder="12 rue des Fleurs, 75011 Paris">
+          </label>
+          <div class="row-2">
+            <label>Téléphone
+              <input type="tel" id="cli-tel" placeholder="06 12 34 56 78">
+            </label>
+            <label>E-mail
+              <input type="email" id="cli-email" placeholder="client@exemple.fr">
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>2. Prestations</legend>
+          <div id="items-container"></div>
+          <button type="button" id="btn-add-item" class="btn btn-outline">＋ Ajouter une prestation</button>
+          <datalist id="unit-list">
+            <option value="heure"></option>
+            <option value="m²"></option>
+            <option value="mètre linéaire"></option>
+            <option value="forfait"></option>
+            <option value="unité"></option>
+          </datalist>
+        </fieldset>
+
+        <fieldset>
+          <legend>3. Frais supplémentaires (€ HT)</legend>
+          <div class="row-3">
+            <label>Déplacement
+              <input type="number" id="dei-move" min="0" step="any" inputmode="decimal" placeholder="0">
+            </label>
+            <label>Matériel
+              <input type="number" id="dei-material" min="0" step="any" inputmode="decimal" placeholder="0">
+            </label>
+            <label>Évacuation déchets
+              <input type="number" id="dei-evac" min="0" step="any" inputmode="decimal" placeholder="0">
+            </label>
+          </div>
+          <label>Remise (€ HT)
+            <input type="number" id="dei-remise" min="0" step="any" inputmode="decimal" placeholder="0">
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>4. TVA et conditions</legend>
+          <label>Régime de TVA *
+            <select id="dei-regime">
+              <option value="franchise">Franchise en base de TVA (0 % — art. 293 B du CGI)</option>
+              <option value="reduit10">TVA réduite 10 %</option>
+              <option value="normal20">TVA normale 20 %</option>
+              <option value="personnalise">Autre taux (personnalisé)</option>
+            </select>
+          </label>
+          <label id="rate-wrap" hidden>Taux de TVA (%)
+            <input type="number" id="dei-rate" min="0" max="100" step="any" inputmode="decimal">
+          </label>
+          <div class="row-2">
+            <label>Date du devis
+              <input type="date" id="dei-date">
+            </label>
+            <label>Validité (jours)
+              <input type="number" id="dei-validity" min="1" step="1" inputmode="numeric" value="30">
+            </label>
+          </div>
+          <label>Conditions de paiement
+            <textarea id="dei-conditions" rows="2"></textarea>
+          </label>
+          <label>Notes / remarques
+            <textarea id="dei-notes" rows="2" placeholder="Ex. accès par le garage, terrain en pente…"></textarea>
+          </label>
+        </fieldset>
+
+        <p id="form-total" class="live-total"></p>
+
+        <div class="form-actions">
+          <button type="button" id="btn-save" class="btn btn-primary">Enregistrer</button>
+          <button type="button" id="btn-save-preview" class="btn btn-primary">Enregistrer et voir l'aperçu</button>
+          <button type="button" id="btn-cancel-form" class="btn btn-ghost">Annuler</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- ============ APERÇU DU DEVIS ============ -->
+    <section id="view-preview" class="view" hidden>
+      <div class="preview-actions">
+        <button type="button" id="pv-pdf" class="btn btn-primary">📄 Télécharger PDF</button>
+        <button type="button" id="pv-print" class="btn btn-outline">🖨️ Imprimer</button>
+        <button type="button" id="pv-share" class="btn btn-outline">📤 Partager</button>
+        <button type="button" id="pv-edit" class="btn btn-outline">✏️ Modifier</button>
+        <button type="button" id="pv-duplicate" class="btn btn-outline">📄 Créer un nouveau devis à partir de celui-ci</button>
+      </div>
+      <label class="status-changer">Statut du devis
+        <select id="pv-status">
+          <option value="brouillon">Brouillon</option>
+          <option value="envoye">Envoyé</option>
+          <option value="accepte">Accepté</option>
+          <option value="refuse">Refusé</option>
+          <option value="termine">Terminé</option>
+        </select>
+      </label>
+      <div id="devis-doc" class="devis-doc"></div>
+    </section>
+
+    <!-- ============ HISTORIQUE ============ -->
+    <section id="view-history" class="view" hidden>
+      <h2>Mes devis</h2>
+      <label class="search-label">Rechercher (nom du client ou numéro)
+        <input type="search" id="history-search" placeholder="Ex. Dupont ou DEV-2025-001">
+      </label>
+      <ul id="history-list" class="history-list"></ul>
+    </section>
+
+    <!-- ============ PROFIL ENTREPRISE ============ -->
+    <section id="view-profile" class="view" hidden>
+      <h2>Mon entreprise</h2>
+      <form id="profile-form" novalidate>
+        <fieldset>
+          <legend>Identité</legend>
+          <label>Nom de l'entreprise *
+            <input type="text" id="pro-entreprise" placeholder="Ex. Jardins du Sud">
+          </label>
+          <label>Nom du professionnel
+            <input type="text" id="pro-nom" placeholder="Ex. Jean Martin">
+          </label>
+          <label>Logo (facultatif)
+            <input type="file" id="pro-logo-input" accept="image/*">
+          </label>
+          <div id="logo-preview-wrap" class="logo-preview" hidden>
+            <img id="logo-preview" alt="Logo de l'entreprise">
+            <button type="button" id="btn-logo-remove" class="btn btn-danger btn-small">Retirer le logo</button>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Coordonnées</legend>
+          <label>Adresse
+            <input type="text" id="pro-adresse" placeholder="1 avenue des Arbres, 34000 Montpellier">
+          </label>
+          <label>Téléphone
+            <input type="tel" id="pro-tel" placeholder="06 12 34 56 78">
+          </label>
+          <label>E-mail
+            <input type="email" id="pro-email" placeholder="contact@monentreprise.fr">
+          </label>
+          <label>Numéro SIRET
+            <input type="text" id="pro-siret" placeholder="14 chiffres" inputmode="numeric">
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Facturation et mentions légales</legend>
+          <label>Informations de facturation (IBAN, coordonnées bancaires…)
+            <textarea id="pro-facturation" rows="3"></textarea>
+          </label>
+          <label>Régime de TVA par défaut *
+            <select id="pro-regime">
+              <option value="franchise">Franchise en base de TVA (0 % — art. 293 B du CGI)</option>
+              <option value="reduit10">TVA réduite 10 %</option>
+              <option value="normal20">TVA normale 20 %</option>
+            </select>
+          </label>
+          <label>Mentions légales applicables
+            <textarea id="pro-mentions" rows="3"></textarea>
+          </label>
+        </fieldset>
+
+        <button type="submit" class="btn btn-primary">Enregistrer mon entreprise</button>
+      </form>
+
+      <fieldset class="backup-fieldset">
+        <legend>Sauvegarde</legend>
+        <p class="hint">Vos données sont enregistrées <strong>uniquement sur cet appareil</strong> (stockage local du navigateur). Elles ne sont pas envoyées sur Internet. Pour ne rien perdre, téléchargez régulièrement une copie de sauvegarde :</p>
+        <button type="button" id="btn-export" class="btn btn-outline">💾 Télécharger une sauvegarde</button>
+        <label class="btn btn-outline import-label">📂 Restaurer une sauvegarde
+          <input type="file" id="btn-import" accept="application/json" hidden>
+        </label>
+      </fieldset>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    JardinDevis — vos données restent sur votre appareil. Aucun compte, aucun paiement requis.
+  </footer>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
