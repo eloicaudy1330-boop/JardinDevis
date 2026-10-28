@@ -127,24 +127,28 @@ function nextNumber() {
 
 /* ---------- Navigation ---------- */
 function showView(name) {
+  if (name !== "abonnement" && !aboActive()) name = "abonnement";
   if (name !== currentView) navStack.push(currentView);
   currentView = name;
-  ["dashboard", "devis-form", "preview", "history", "profile"].forEach((v) => {
+  ["dashboard", "devis-form", "preview", "history", "profile", "abonnement"].forEach((v) => {
     $("view-" + v).hidden = (v !== name);
   });
-  $("btn-back").hidden = (name === "dashboard" || navStack.length === 0);
+  $("btn-back").hidden = (name === "dashboard" || name === "abonnement" || navStack.length === 0);
+  if (name === "abonnement") updateAboUI();
   window.scrollTo({ top: 0 });
 }
 
 function goBack() {
-  const prev = navStack.pop() || "dashboard";
+  let prev = navStack.pop() || "dashboard";
+  if (prev !== "abonnement" && !aboActive()) prev = "abonnement";
   currentView = prev;
-  ["dashboard", "devis-form", "preview", "history", "profile"].forEach((v) => {
+  ["dashboard", "devis-form", "preview", "history", "profile", "abonnement"].forEach((v) => {
     $("view-" + v).hidden = (v !== prev);
   });
-  $("btn-back").hidden = (prev === "dashboard" || navStack.length === 0);
+  $("btn-back").hidden = (prev === "dashboard" || prev === "abonnement" || navStack.length === 0);
   if (prev === "history") renderHistory();
   if (prev === "dashboard") renderDashboard();
+  if (prev === "abonnement") updateAboUI();
   updateBackLabel();
   window.scrollTo({ top: 0 });
 }
@@ -452,6 +456,7 @@ function renderPreview(id) {
   previewId = id;
   $("pv-status").value = d.status;
   $("devis-doc").innerHTML = buildDocHTML(d);
+  ensureJsPDF().catch(() => {}); // précharge la bibliothèque PDF en silence
   showView("preview");
   updateBackLabel();
 }
@@ -540,6 +545,7 @@ function buildDocHTML(d) {
     "</table>" +
 
     (d.conditions ? '<div class="doc-block"><strong>Conditions de paiement :</strong> ' + esc(d.conditions).replace(/\n/g, "<br>") + "</div>" : "") +
+    (p.facturation ? '<div class="doc-block"><strong>Coordonnées bancaires :</strong> ' + esc(p.facturation).replace(/\n/g, "<br>") + "</div>" : "") +
     (d.notes ? '<div class="doc-block"><strong>Notes :</strong> ' + esc(d.notes).replace(/\n/g, "<br>") + "</div>" : "") +
 
     (mentions.length ? '<div class="doc-mentions">' + mentions.join("<br>") + "</div>" : "") +
@@ -589,6 +595,342 @@ async function shareDevis() {
   } catch (e) {
     showToast("Le partage n'est pas disponible sur cet appareil. Utilisez « Télécharger PDF ».", true);
   }
+}
+
+/* ---------- Export PDF réel (jsPDF, chargé à la demande) ---------- */
+const JSPDF_CDN = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js";
+let jsPDFPromise = null;
+
+function ensureJsPDF() {
+  if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
+  if (!jsPDFPromise) {
+    jsPDFPromise = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = JSPDF_CDN;
+      s.onload = () => {
+        if (window.jspdf && window.jspdf.jsPDF) resolve(window.jspdf.jsPDF);
+        else reject(new Error("jsPDF absent après chargement"));
+      };
+      s.onerror = () => reject(new Error("Chargement de jsPDF impossible"));
+      document.head.appendChild(s);
+      setTimeout(() => reject(new Error("Chargement de jsPDF trop long")), 12000);
+    }).catch((e) => {
+      jsPDFPromise = null; // permet une nouvelle tentative plus tard
+      throw e;
+    });
+  }
+  return jsPDFPromise;
+}
+
+// Les polices standard de jsPDF ne couvrent que le WinAnsi : on retire
+// espaces fines, signe moins typographique et tout caractère hors Latin-1
+// (emojis, etc.) pour éviter un PDF illisible ou une erreur.
+const WINANSI_EXTRA = new Set([
+  0x20AC, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030,
+  0x0160, 0x2039, 0x0152, 0x017D, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022,
+  0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x017E, 0x0178
+]);
+
+function pdfText(s) {
+  return String(s == null ? "" : s)
+    .replace(/\u2212/g, "-")
+    .replace(/[\u202F\u00A0]/g, " ")
+    .split("")
+    .filter((ch) => ch.codePointAt(0) < 256 || WINANSI_EXTRA.has(ch.codePointAt(0)))
+    .join("");
+}
+
+function pdfMoney(v) {
+  return euro(v).replace(/[\u202F\u00A0]/g, " ");
+}
+
+function loadImage(src) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+async function prepareLogo() {
+  const src = db.profile.logo;
+  if (!src || !/^data:image\/(png|jpeg)/i.test(src)) return null;
+  const img = await loadImage(src);
+  if (!img || !img.naturalWidth) return null;
+  const maxW = 40, maxH = 22;
+  let w = maxW;
+  let h = maxW * (img.naturalHeight / img.naturalWidth);
+  if (h > maxH) {
+    h = maxH;
+    w = maxH * (img.naturalWidth / img.naturalHeight);
+  }
+  return { data: src, fmt: /^data:image\/png/i.test(src) ? "PNG" : "JPEG", w: w, h: h };
+}
+
+async function downloadPdf() {
+  const d = previewId && findDevis(previewId);
+  if (!d) { showToast("Ouvrez d'abord un devis.", true); return; }
+  showToast("Préparation du PDF…");
+  let JSPDF;
+  try {
+    JSPDF = await ensureJsPDF();
+  } catch (e) {
+    showToast("PDF indisponible sans connexion : utilisez « Imprimer » puis « Enregistrer au format PDF ».", true);
+    return;
+  }
+  try {
+    const logo = await prepareLogo();
+    const doc = buildPdf(JSPDF, d, logo);
+    const filename = "Devis-" + pdfText(d.number) + ".pdf";
+    const blob = doc.output("blob");
+    // Sur iPhone/Android : fiche de partage native (Fichiers, e-mail, WhatsApp…)
+    if (blob && navigator.share && navigator.canShare) {
+      const file = new File([blob], filename, { type: "application/pdf" });
+      if (navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: "Devis " + d.number });
+          return;
+        } catch (err) {
+          if (err && err.name === "AbortError") return; // annulé par l'utilisateur
+          // sinon : téléchargement direct
+        }
+      }
+    }
+    doc.save(filename);
+    showToast("PDF créé : " + filename);
+  } catch (e) {
+    console.error("Erreur PDF :", e);
+    showToast("Impossible de créer le PDF. Utilisez « Imprimer » pour l'enregistrer en PDF.", true);
+  }
+}
+
+function buildPdf(JSPDF, d, logo) {
+  const p = db.profile;
+  const c = calcDevis(d);
+  const doc = new JSPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const PW = doc.internal.pageSize.getWidth();
+  const PH = doc.internal.pageSize.getHeight();
+  const ML = 14;
+  const MR = 14;
+  const CW = PW - ML - MR;
+  const GREEN = [30, 86, 49];
+  const GREY = [110, 124, 112];
+  const INK = [43, 58, 48];
+  const GREENBG = [232, 243, 236];
+  const LINE = [220, 232, 224];
+  const RED = [192, 57, 43];
+  let y = 14;
+
+  function font(style, size, col) {
+    doc.setFont("helvetica", style);
+    doc.setFontSize(size);
+    doc.setTextColor(col[0], col[1], col[2]);
+  }
+
+  function space(h) {
+    if (y + h > PH - 18) {
+      doc.addPage();
+      y = 18;
+    }
+  }
+
+  function para(title, body) {
+    if (!body) return;
+    font("normal", 8, INK);
+    const lines = doc.splitTextToSize(pdfText(body), CW - 6);
+    const h = (title ? 5 : 0) + lines.length * 4 + 4;
+    space(h);
+    doc.setFillColor(245, 248, 246);
+    doc.roundedRect(ML, y, CW, h, 1.5, 1.5, "F");
+    let ty = y + 4.5;
+    if (title) {
+      font("bold", 8.5, GREEN);
+      doc.text(pdfText(title), ML + 3, ty);
+      ty += 5;
+      font("normal", 8, INK);
+    }
+    lines.forEach((t, i) => doc.text(t, ML + 3, ty + i * 4));
+    y += h + 3;
+  }
+
+  /* ---- En-tête ---- */
+  if (logo) {
+    try {
+      doc.addImage(logo.data, logo.fmt, ML, y, logo.w, logo.h);
+      y += logo.h + 2;
+    } catch (e) { /* logo illisible : on continue sans */ }
+  }
+  font("bold", 15, GREEN);
+  doc.text(pdfText(p.entreprise || "Votre entreprise"), ML, y + 4);
+  font("bold", 20, GREEN);
+  doc.text("DEVIS", PW - MR, y + 4, { align: "right" });
+  y += 8;
+
+  font("normal", 8.5, GREY);
+  const compLines = [];
+  if (p.nom) compLines.push(pdfText(p.nom));
+  (p.adresse ? p.adresse.split(/\r?\n/) : []).forEach((t) => compLines.push(pdfText(t)));
+  if (p.tel) compLines.push("Tél. : " + pdfText(p.tel));
+  if (p.email) compLines.push(pdfText(p.email));
+  if (p.siret) compLines.push("SIRET : " + pdfText(p.siret));
+  const metaLines = [
+    "N° " + pdfText(d.number),
+    "Date : " + fmtDate(d.date),
+    d.validity ? "Valable jusqu'au " + fmtDate(addDaysISO(d.date, d.validity)) : null
+  ].filter(Boolean);
+  compLines.forEach((t, i) => doc.text(t, ML, y + i * 4));
+  metaLines.forEach((t, i) => doc.text(t, PW - MR, y + i * 4, { align: "right" }));
+  y += Math.max(compLines.length, metaLines.length, 1) * 4 + 3;
+  doc.setDrawColor(GREEN[0], GREEN[1], GREEN[2]);
+  doc.setLineWidth(0.8);
+  doc.line(ML, y, PW - MR, y);
+  y += 6;
+
+  /* ---- Client ---- */
+  const clientRows = [];
+  clientRows.push(pdfText(d.client.nom || "—"));
+  (d.client.adresse ? d.client.adresse.split(/\r?\n/) : []).forEach((t) => clientRows.push(pdfText(t)));
+  if (d.client.tel || d.client.email) {
+    clientRows.push([d.client.tel, d.client.email].filter(Boolean).map(pdfText).join(" · "));
+  }
+  font("normal", 9, INK);
+  const clientWrapped = [];
+  clientRows.forEach((t) => {
+    clientWrapped.push(...doc.splitTextToSize(t, CW - 8));
+  });
+  const boxH = 8 + clientWrapped.length * 4.5 + 3;
+  space(boxH + 2);
+  doc.setFillColor(GREENBG[0], GREENBG[1], GREENBG[2]);
+  doc.roundedRect(ML, y, CW, boxH, 2, 2, "F");
+  font("bold", 7, GREEN);
+  doc.text("CLIENT", ML + 4, y + 5);
+  font("normal", 9, INK);
+  clientWrapped.forEach((t, i) => doc.text(t, ML + 4, y + 9 + i * 4.5));
+  y += boxH + 5;
+
+  /* ---- Prestations ---- */
+  const colDesc = ML;
+  const colDescW = 84;
+  const colQtyR = 112;
+  const colUnit = 116;
+  const colPUR = 160;
+  const colTotR = PW - MR;
+  space(9);
+  doc.setFillColor(GREEN[0], GREEN[1], GREEN[2]);
+  doc.rect(ML, y, CW, 7, "F");
+  font("bold", 8, [255, 255, 255]);
+  doc.text("Désignation", ML + 1.5, y + 4.8);
+  doc.text("Qté", colQtyR, y + 4.8, { align: "right" });
+  doc.text("Unité", colUnit, y + 4.8);
+  doc.text("Prix unitaire HT", colPUR, y + 4.8, { align: "right" });
+  doc.text("Total HT", colTotR, y + 4.8, { align: "right" });
+  y += 7;
+
+  c.lines.forEach((l) => {
+    let label = l.category === "Autres prestations personnalisées" ? "" : l.category;
+    if (label && l.description) label += " — ";
+    label = (label + (l.description || "")).trim();
+    if (!label) label = "Prestation";
+    font("normal", 8.5, INK);
+    const descLines = doc.splitTextToSize(pdfText(label), colDescW);
+    const rowH = Math.max(6, descLines.length * 4 + 2.5);
+    space(rowH + 1);
+    font("normal", 8.5, INK);
+    descLines.forEach((t, i) => doc.text(t, ML + 1.5, y + 4 + i * 4));
+    doc.text(pdfText(l.qty || "0"), colQtyR, y + 4, { align: "right" });
+    doc.text(pdfText(l.unit || "—"), colUnit, y + 4);
+    doc.text(pdfMoney(l.priceNum), colPUR, y + 4, { align: "right" });
+    doc.text(pdfMoney(l.total), colTotR, y + 4, { align: "right" });
+    doc.setDrawColor(LINE[0], LINE[1], LINE[2]);
+    doc.setLineWidth(0.2);
+    doc.line(ML, y + rowH, PW - MR, y + rowH);
+    y += rowH;
+  });
+
+  const extras = [];
+  if (c.move > 0) extras.push(["Frais de déplacement", c.move]);
+  if (c.material > 0) extras.push(["Frais de matériel", c.material]);
+  if (c.evac > 0) extras.push(["Frais d'évacuation des déchets verts", c.evac]);
+  extras.forEach((e) => {
+    space(7);
+    font("normal", 8.5, INK);
+    doc.text(pdfText(e[0]), ML + 1.5, y + 4);
+    doc.text(pdfMoney(e[1]), colTotR, y + 4, { align: "right" });
+    doc.setDrawColor(LINE[0], LINE[1], LINE[2]);
+    doc.setLineWidth(0.2);
+    doc.line(ML, y + 6, PW - MR, y + 6);
+    y += 6;
+  });
+  if (c.remise > 0) {
+    space(7);
+    font("normal", 8.5, RED);
+    doc.text("Remise", ML + 1.5, y + 4);
+    doc.text("-" + pdfMoney(c.remise), colTotR, y + 4, { align: "right" });
+    y += 6;
+  }
+  y += 3;
+
+  /* ---- Totaux ---- */
+  const tw = 75;
+  const tx = PW - MR - tw;
+  const totRows = [
+    ["Total HT", pdfMoney(c.totalHT), false],
+    c.rate > 0 ? ["TVA " + c.rate + " %", pdfMoney(c.tva), false] : ["TVA", "Non applicable", false],
+    ["TOTAL à payer", pdfMoney(c.totalTTC), true]
+  ];
+  space(totRows.length * 6 + 4);
+  totRows.forEach((r) => {
+    if (r[2]) {
+      doc.setFillColor(GREENBG[0], GREENBG[1], GREENBG[2]);
+      doc.rect(tx, y, tw, 7, "F");
+      font("bold", 9, GREEN);
+    } else {
+      font("normal", 8.5, INK);
+    }
+    doc.text(pdfText(r[0]), tx + 2, y + 4.8);
+    doc.text(r[1], PW - MR - 2, y + 4.8, { align: "right" });
+    y += r[2] ? 7 : 6;
+  });
+  y += 4;
+
+  para("Conditions de paiement :", d.conditions);
+  para("Coordonnées bancaires :", p.facturation);
+  para("Notes :", d.notes);
+
+  const mentions = [];
+  if (c.rate === 0) mentions.push("TVA non applicable, art. 293 B du CGI (franchise en base de TVA).");
+  if (p.mentions) mentions.push(pdfText(p.mentions));
+  if (mentions.length) {
+    font("normal", 7, GREY);
+    const wrapped = doc.splitTextToSize(mentions.join("  "), CW);
+    space(wrapped.length * 3.5 + 2);
+    font("normal", 7, GREY);
+    wrapped.forEach((t, i) => doc.text(t, ML, y + i * 3.5));
+    y += wrapped.length * 3.5 + 4;
+  }
+
+  /* ---- Signature ---- */
+  space(32);
+  doc.setDrawColor(169, 196, 178);
+  doc.setLineWidth(0.4);
+  doc.setLineDashPattern([1.2, 1.2], 0);
+  doc.roundedRect(ML, y, CW, 26, 2, 2);
+  doc.setLineDashPattern([], 0);
+  font("bold", 8.5, INK);
+  doc.text("Bon pour accord du client", ML + 3, y + 5);
+  font("normal", 7.5, GREY);
+  doc.text("Date et signature du client :", ML + 3, y + 10);
+  doc.text("« J'accepte le devis ci-dessus et ses conditions. »", ML + 3, y + 14.5);
+  y += 30;
+
+  space(10);
+  doc.setFillColor(GREENBG[0], GREENBG[1], GREENBG[2]);
+  doc.roundedRect(ML, y, CW, 8, 1.5, 1.5, "F");
+  font("bold", 7.5, GREEN);
+  doc.text("Le présent devis doit être accepté (signature du client) avant le début des travaux.", ML + 2.5, y + 5);
+
+  return doc;
 }
 
 /* ---------- Historique ---------- */
@@ -646,6 +988,17 @@ function renderDashboard() {
     ? "Vous n'avez pas encore de devis."
     : n + " devis enregistré" + (n > 1 ? "s" : "") + " · " + acceptes.length + " accepté" + (acceptes.length > 1 ? "s" : "") +
       (acceptes.length ? " · " + euro(totalAccepte) : "");
+  const b = $("abo-banner");
+  if (aboActive()) {
+    const isTrial = (abo.plan || "").indexOf("essai-") === 0;
+    const days = aboDaysLeft();
+    const jTxt = days + " jour" + (days > 1 ? "s" : "");
+    b.textContent = isTrial
+      ? "Essai gratuit — " + jTxt + " restant" + (days > 1 ? "s" : "") + ". Touchez pour voir les formules."
+      : "Abonnement " + (abo.plan === "mensuel" ? "mensuel" : "annuel") + " actif — " + jTxt + " restant" + (days > 1 ? "s" : "") + ".";
+  } else {
+    b.textContent = "Accès limité : abonnement requis. Touchez pour vous abonner.";
+  }
 }
 
 /* ---------- Profil ---------- */
@@ -762,6 +1115,149 @@ function importBackup(file) {
   reader.readAsText(file);
 }
 
+/* ---------- Abonnement ---------- */
+const ABO_LS_KEY = "jardindevis.abo.v1";
+// Clé secrète contenue dans les liens d'activation après paiement.
+// IMPORTANT : changez-la avant de vendre l'application, et utilisez la même
+// dans les URLs de redirection Stripe (voir README, section Abonnement).
+const ABO_SECRET = "JARDINDEVIS-2025";
+// Liens de paiement Stripe (Payment Links, gratuits à créer sur stripe.com).
+// Laissez vide tant que Stripe n'est pas configuré : le bouton « S'abonner »
+// préviendra alors l'utilisateur. Voir README pour la configuration.
+const STRIPE_LINK_MENSUEL = "";
+const STRIPE_LINK_ANNUEL = "";
+// Essais gratuits : 1 jour sur l'offre mensuelle, 3 jours sur l'offre annuelle.
+const TRIAL_DAYS = { mensuel: 1, annuel: 3 };
+// Durée d'un abonnement payé, en mois.
+const ABO_DURATION = { mensuel: 1, annuel: 12 };
+
+let abo = { plan: null, end: 0, trials: {} };
+
+function loadAbo() {
+  try {
+    const raw = localStorage.getItem(ABO_LS_KEY);
+    if (!raw) return;
+    const a = JSON.parse(raw);
+    if (a && typeof a === "object") {
+      abo.plan = typeof a.plan === "string" ? a.plan : null;
+      abo.end = Number(a.end) || 0;
+      abo.trials = a.trials && typeof a.trials === "object" ? a.trials : {};
+    }
+  } catch (e) {
+    /* abonnement illisible : considéré inactif */
+  }
+}
+
+function saveAbo() {
+  try {
+    localStorage.setItem(ABO_LS_KEY, JSON.stringify(abo));
+  } catch (e) {
+    /* stockage indisponible : l'abonnement ne sera pas mémorisé */
+  }
+}
+
+function aboActive() {
+  return !!abo.plan && Date.now() < abo.end;
+}
+
+function aboDaysLeft() {
+  return Math.max(0, Math.ceil((abo.end - Date.now()) / (24 * 60 * 60 * 1000)));
+}
+
+function aboLabel(plan) {
+  if (plan === "mensuel") return "Abonnement mensuel";
+  if (plan === "annuel") return "Abonnement annuel";
+  if (plan === "essai-mensuel") return "Essai mensuel";
+  if (plan === "essai-annuel") return "Essai annuel";
+  return "";
+}
+
+function addMonths(timestamp, m) {
+  const d = new Date(timestamp);
+  d.setMonth(d.getMonth() + m);
+  return d.getTime();
+}
+
+function activate(plan) {
+  const base = Math.max(Date.now(), aboActive() ? abo.end : 0);
+  abo.plan = plan;
+  abo.end = addMonths(base, ABO_DURATION[plan]);
+  saveAbo();
+}
+
+function startTrial(plan) {
+  if (aboActive()) {
+    showToast("Votre abonnement est déjà actif.");
+    showView("dashboard");
+    return;
+  }
+  if (abo.trials[plan]) {
+    showToast("Cet essai gratuit a déjà été utilisé sur cet appareil.", true);
+    return;
+  }
+  const days = TRIAL_DAYS[plan];
+  abo.plan = "essai-" + plan;
+  abo.end = Date.now() + days * 24 * 60 * 60 * 1000;
+  abo.trials[plan] = true;
+  saveAbo();
+  navStack.length = 0;
+  showToast("Essai gratuit de " + days + " jour" + (days > 1 ? "s" : "") + " activé ! Bon travail !");
+  updateAboUI();
+  showView("dashboard");
+}
+
+function buySubscription(plan) {
+  const url = plan === "mensuel" ? STRIPE_LINK_MENSUEL : STRIPE_LINK_ANNUEL;
+  if (!url) {
+    showToast("Le paiement en ligne n'est pas encore configuré. L'essai gratuit reste disponible.", true);
+    return;
+  }
+  window.open(url, "_blank");
+}
+
+// Après paiement sur Stripe, l'utilisateur revient avec un lien du type
+// ...?abonnement=mensuel&cle=... : on active alors son abonnement.
+function handleActivationParam() {
+  const params = new URLSearchParams(location.search);
+  const plan = params.get("abonnement");
+  if (!plan || !(plan in ABO_DURATION)) return;
+  const cle = params.get("cle");
+  if (ABO_SECRET && cle !== ABO_SECRET) {
+    showToast("Lien d'activation invalide.", true);
+  } else {
+    activate(plan);
+    navStack.length = 0;
+    showToast("Abonnement " + (plan === "mensuel" ? "mensuel" : "annuel") + " activé ! Merci !");
+  }
+  params.delete("abonnement");
+  params.delete("cle");
+  const qs = params.toString();
+  history.replaceState(null, "", location.pathname + (qs ? "?" + qs : ""));
+}
+
+function updateAboUI() {
+  const st = $("abo-status");
+  const cont = $("abo-continue");
+  if (aboActive()) {
+    const isTrial = (abo.plan || "").indexOf("essai-") === 0;
+    const days = aboDaysLeft();
+    const endTxt = new Date(abo.end).toLocaleDateString("fr-FR");
+    st.innerHTML = isTrial
+      ? '<span class="badge st-envoye">Essai actif</span> Il vous reste ' + days + " jour" + (days > 1 ? "s" : "") +
+        " (jusqu'au " + endTxt + "). Choisissez votre formule pour continuer après l'essai."
+      : '<span class="badge st-accepte">' + esc(aboLabel(abo.plan)) + " actif</span> Valide jusqu'au " + endTxt + ".";
+    cont.hidden = false;
+  } else if (abo.plan) {
+    st.innerHTML = '<span class="badge st-refuse">Abonnement expiré</span> Renouvelez pour continuer à créer des devis.';
+    cont.hidden = true;
+  } else {
+    st.textContent = "Choisissez votre formule. Des essais gratuits sont disponibles.";
+    cont.hidden = true;
+  }
+  $("abo-trial-mensuel").disabled = !!abo.trials.mensuel;
+  $("abo-trial-annuel").disabled = !!abo.trials.annuel;
+}
+
 /* ---------- Événements ---------- */
 function bindEvents() {
   // Navigation par boutons data-nav
@@ -792,7 +1288,7 @@ function bindEvents() {
   });
 
   // Aperçu
-  $("pv-pdf").addEventListener("click", () => printDevis(true));
+  $("pv-pdf").addEventListener("click", downloadPdf);
   $("pv-print").addEventListener("click", () => printDevis(false));
   $("pv-share").addEventListener("click", shareDevis);
   $("pv-edit").addEventListener("click", () => { if (previewId) openEditDevis(previewId); });
@@ -833,11 +1329,20 @@ function bindEvents() {
   });
   $("btn-export").addEventListener("click", exportBackup);
   $("btn-import").addEventListener("change", (e) => { importBackup(e.target.files[0]); e.target.value = ""; });
+
+  // Abonnement
+  $("abo-trial-mensuel").addEventListener("click", () => startTrial("mensuel"));
+  $("abo-trial-annuel").addEventListener("click", () => startTrial("annuel"));
+  $("abo-buy-mensuel").addEventListener("click", () => buySubscription("mensuel"));
+  $("abo-buy-annuel").addEventListener("click", () => buySubscription("annuel"));
+  $("abo-continue").addEventListener("click", () => showView("dashboard"));
 }
 
 /* ---------- Démarrage ---------- */
 loadDB();
+loadAbo();
+handleActivationParam();
 bindEvents();
 renderDashboard();
-showView("dashboard");
+showView(aboActive() ? "dashboard" : "abonnement");
 updateBackLabel();

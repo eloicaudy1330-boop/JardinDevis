@@ -194,6 +194,43 @@ table.doc-table { width: 100%; border-collapse: collapse; margin: 14px 0; font-s
 }
 .toast.err { background: var(--erreur); }
 
+/* ---------- Abonnement ---------- */
+.abo-banner {
+  margin: 10px 0 6px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--vert-clair);
+  color: var(--vert-fonce);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.abo-status { font-size: 15px; margin: 6px 0 18px; }
+.abo-plans { display: grid; grid-template-columns: 1fr; gap: 16px; }
+@media (min-width: 560px) { .abo-plans { grid-template-columns: 1fr 1fr; } }
+.abo-plan {
+  position: relative;
+  background: var(--blanc);
+  border: 2px solid #dbe8de;
+  border-radius: var(--rayon);
+  padding: 20px 16px 14px;
+  box-shadow: var(--ombre);
+  text-align: center;
+}
+.abo-plan-annuel { border-color: var(--vert-fonce); }
+.abo-plan-tag {
+  position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+  background: var(--vert-fonce); color: var(--blanc);
+  font-size: 12px; font-weight: 700; padding: 3px 10px;
+  border-radius: 12px; white-space: nowrap;
+}
+.abo-plan-name { font-weight: 700; color: var(--vert-fonce); font-size: 18px; }
+.abo-price { font-size: 30px; font-weight: 800; margin: 6px 0 2px; }
+.abo-price span { font-size: 15px; font-weight: 600; color: var(--gris-doux); }
+.abo-desc { font-size: 14px; color: var(--gris-doux); margin: 4px 0 14px; }
+.abo-plan .btn { display: block; width: 100%; margin: 8px 0 0; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* ---------- Impression / PDF ---------- */
 @media print {
   @page { margin: 12mm; }

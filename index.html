@@ -27,6 +27,7 @@
       <h1>Bonjour 👋<br>Bienvenue sur JardinDevis</h1>
       <p class="tagline">Créez des devis professionnels en quelques minutes, depuis votre téléphone.</p>
       <p id="dashboard-stats" class="stats"></p>
+      <p id="abo-banner" class="abo-banner" data-nav="abonnement"></p>
 
       <button type="button" class="big-btn big-green" data-nav="new-devis">
         <span class="big-icon">＋</span>
@@ -235,10 +236,42 @@
       </fieldset>
     </section>
 
+    <!-- ============ ABONNEMENT ============ -->
+    <section id="view-abonnement" class="view" hidden>
+      <h2>Abonnement</h2>
+      <p id="abo-status" class="abo-status"></p>
+
+      <div class="abo-plans">
+        <div class="abo-plan">
+          <div class="abo-plan-name">Mensuel</div>
+          <div class="abo-price">9,99 €<span>/mois</span></div>
+          <p class="abo-desc">Sans engagement, résiliable à tout moment.</p>
+          <button type="button" id="abo-trial-mensuel" class="btn btn-outline">Essai gratuit — 1 jour</button>
+          <button type="button" id="abo-buy-mensuel" class="btn btn-primary">S'abonner — 9,99 €/mois</button>
+        </div>
+
+        <div class="abo-plan abo-plan-annuel">
+          <div class="abo-plan-tag">Le plus économique</div>
+          <div class="abo-plan-name">Annuel</div>
+          <div class="abo-price">70 €<span>/an</span></div>
+          <p class="abo-desc">Soit 5,83 €/mois — 42 % d'économie.</p>
+          <button type="button" id="abo-trial-annuel" class="btn btn-outline">Essai gratuit — 3 jours</button>
+          <button type="button" id="abo-buy-annuel" class="btn btn-primary">S'abonner — 70 €/an</button>
+        </div>
+      </div>
+
+      <p class="hint" style="margin-top: 14px">
+        Essais gratuits : 1 jour sur l'offre mensuelle, 3 jours sur l'offre annuelle (une seule fois par appareil).
+        Après le paiement, vous revenez automatiquement sur cette page et l'abonnement est activé. Prix TTC.
+      </p>
+
+      <button type="button" id="abo-continue" class="btn btn-outline" hidden>Continuer (abonnement en cours)</button>
+    </section>
+
   </main>
 
   <footer class="app-footer">
-    JardinDevis — vos données restent sur votre appareil. Aucun compte, aucun paiement requis.
+    JardinDevis — essai gratuit, puis 9,99 €/mois ou 70 €/an. Vos données restent sur votre appareil.
   </footer>
 
   <div id="toast" class="toast" hidden></div>
